@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .models import EngineInfo, NoteEvent, Project, ScoreSettings, Stem, StoredFile
 from .store import ProjectStore
+from .transcription import import_transcription_notes
 
 
 CommandRunner = Callable[[list[str], Path, int], tuple[int, str, str]]
@@ -164,24 +165,20 @@ class ProcessingService:
 
         engine = self.registry.get(engine_id, kind="transcription")
         audio_path = self.store.project_file_path(project.id, stem.audio.path)
-        notes = self._fallback_notes(audio_path)
 
         if engine.available and engine.id == "local-placeholder":
+            notes = self._fallback_notes(audio_path)
             message = "Generated editable placeholder notes."
+        elif engine.available and engine.id == "basic-pitch":
+            return self._transcribe_with_basic_pitch(project, stem, audio_path, engine)
         elif engine.available:
+            notes = self._fallback_notes(audio_path)
             message = f"{engine.label} is available. External execution adapter is ready to replace fallback notes."
         else:
+            notes = self._fallback_notes(audio_path)
             message = f"{engine.id} is not available. Generated fallback editable notes."
 
-        updated = project.model_copy(
-            update={
-                "status": "transcribed",
-                "notes": notes,
-                "score_settings": ScoreSettings(),
-                "message": message,
-            }
-        )
-        return self.store.save_project(updated)
+        return self._save_transcription(project, notes, message)
 
     def _source_stem(self, project: Project, engine: str) -> Stem:
         return Stem(
@@ -253,6 +250,34 @@ class ProcessingService:
 
         return self._save_generated_stems(project, stems, f"audio-separator separated {len(stems)} stems.")
 
+    def _transcribe_with_basic_pitch(
+        self,
+        project: Project,
+        stem: Stem,
+        audio_path: Path,
+        engine: EngineInfo,
+    ) -> Project:
+        project_dir = self.store.project_file_path(project.id, "")
+        output_root = project_dir / "transcription" / "basic-pitch" / stem.id
+        output_root.parent.mkdir(parents=True, exist_ok=True)
+
+        command = [
+            _tool_path("basic-pitch", "LINGPU_BASIC_PITCH_BIN") or "basic-pitch",
+            str(output_root),
+            str(audio_path),
+            "--save-note-events",
+        ]
+        failed = self._run_transcription_command(command, project_dir, engine.label)
+        if failed is not None:
+            return self._save_transcription(project, self._fallback_notes(audio_path), failed)
+
+        notes = import_transcription_notes(output_root)
+        if not notes:
+            message = "Basic Pitch did not produce importable notes. Generated fallback editable notes."
+            return self._save_transcription(project, self._fallback_notes(audio_path), message)
+
+        return self._save_transcription(project, notes, f"Basic Pitch imported {len(notes)} notes.")
+
     def _run_separation_command(self, command: list[str], cwd: Path, label: str) -> str | None:
         try:
             return_code, stdout, stderr = self.command_runner(
@@ -272,6 +297,26 @@ class ProcessingService:
         if detail:
             return f"{label} failed with exit code {return_code}: {detail}. Using original mix as a fallback stem."
         return f"{label} failed with exit code {return_code}. Using original mix as a fallback stem."
+
+    def _run_transcription_command(self, command: list[str], cwd: Path, label: str) -> str | None:
+        try:
+            return_code, stdout, stderr = self.command_runner(
+                command,
+                cwd,
+                DEFAULT_COMMAND_TIMEOUT_SECONDS,
+            )
+        except FileNotFoundError:
+            return f"{label} command was not found. Generated fallback editable notes."
+        except subprocess.TimeoutExpired:
+            return f"{label} timed out. Generated fallback editable notes."
+
+        if return_code == 0:
+            return None
+
+        detail = _last_output_line(stderr or stdout)
+        if detail:
+            return f"{label} failed with exit code {return_code}: {detail}. Generated fallback editable notes."
+        return f"{label} failed with exit code {return_code}. Generated fallback editable notes."
 
     def _generated_stems(self, project: Project, engine: str, output_root: Path) -> list[Stem]:
         project_dir = self.store.project_file_path(project.id, "").resolve()
@@ -308,6 +353,17 @@ class ProcessingService:
 
     def _save_generated_stems(self, project: Project, stems: list[Stem], message: str) -> Project:
         updated = project.model_copy(update={"status": "separated", "stems": stems, "message": message})
+        return self.store.save_project(updated)
+
+    def _save_transcription(self, project: Project, notes: list[NoteEvent], message: str) -> Project:
+        updated = project.model_copy(
+            update={
+                "status": "transcribed",
+                "notes": notes,
+                "score_settings": ScoreSettings(),
+                "message": message,
+            }
+        )
         return self.store.save_project(updated)
 
     @staticmethod

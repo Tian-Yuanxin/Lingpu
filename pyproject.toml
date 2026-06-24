@@ -2,7 +2,7 @@
 name = "lingpu"
 version = "0.1.0"
 description = "Local audio-to-score transcription workbench MVP."
-requires-python = ">=3.12"
+requires-python = ">=3.11,<3.13"
 dependencies = [
   "fastapi",
   "pydantic",
@@ -22,14 +22,15 @@ separation = [
   "static-ffmpeg",
 ]
 transcription = [
-  "basic-pitch",
+  "basic-pitch; python_version < '3.12'",
+]
+omnizart = [
   "omnizart",
 ]
 models = [
   "audio-separator[cpu]",
-  "basic-pitch",
+  "basic-pitch; python_version < '3.12'",
   "demucs",
-  "omnizart",
   "soundfile",
   "static-ffmpeg",
 ]

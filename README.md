@@ -9,8 +9,7 @@ and exporting MIDI, MusicXML, or PDF.
 
 - Upload an audio file and create a local project under `data/projects/`.
 - Run a separation step with the local fallback, Demucs, or audio-separator.
-- Run a transcription step. In the offline MVP this creates deterministic
-  placeholder notes so the editing, preview, and export workflow can be used.
+- Run a transcription step with the local placeholder or Basic Pitch.
 - Edit note pitch, start time, and end time in the browser.
 - Export generated notes as `.mid`, `.musicxml`, or `.pdf`.
 
@@ -34,7 +33,7 @@ Separation targets:
 Transcription targets:
 
 - `local-placeholder`: always available; creates deterministic editable notes.
-- `basic-pitch`: first real transcription adapter target for single stems.
+- `basic-pitch`: real audio-to-notes adapter for one prominent separated stem.
 - `omnizart`: later adapter target for melody/vocal/drum/chord tasks.
 - `mt3`: later research adapter target for multi-instrument transcription.
 
@@ -52,6 +51,27 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev,separation]"
 ```
 
+Python 3.12 works for the core app and separation adapters. Use Python 3.11
+when the same environment also needs to run Basic Pitch inference.
+
+Install transcription dependencies when Basic Pitch support is needed:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,separation,transcription]"
+```
+
+Basic Pitch currently supports Python 3.7-3.11 upstream. In a Python 3.12
+environment the `transcription` extra is skipped by its environment marker, so
+the adapter code is available but the Basic Pitch CLI will remain unavailable
+until the app is run from a compatible Python environment or upstream publishes
+Python 3.12-compatible packages.
+
+Install Omnizart separately only when that adapter is being developed:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[omnizart]"
+```
+
 The Windows deployment uses `static-ffmpeg` for `ffmpeg`/`ffprobe`, and the
 Demucs adapter writes WAV/FLAC files through `soundfile` to avoid torchaudio's
 TorchCodec shared-library path on Windows.
@@ -67,6 +87,12 @@ Preload the default audio-separator model:
 Demucs downloads its model weights on first run. audio-separator model weights
 are cached under `data/models/audio-separator/`; generated project stems are
 stored under each project directory in `data/projects/`.
+
+Basic Pitch outputs are stored under
+`data/projects/<project-id>/transcription/basic-pitch/<stem-id>/`. The adapter
+imports note-event CSV first and falls back to MIDI import if no CSV is present.
+Basic Pitch works best when the selected stem contains one clear instrument or
+voice line.
 
 ## Run locally
 

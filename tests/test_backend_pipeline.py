@@ -158,6 +158,100 @@ def test_audio_separator_adapter_imports_generated_stems(tmp_path):
     assert all(stem.engine == "audio-separator" for stem in separated.stems)
 
 
+def test_basic_pitch_adapter_imports_note_event_csv(tmp_path):
+    store = ProjectStore(tmp_path)
+    project = store.create_project("demo.wav", make_wav_bytes())
+    processing = ProcessingService(store)
+    separated = processing.separate(project.id)
+
+    def fake_runner(command, cwd, timeout_seconds):
+        output_root = Path(command[1])
+        output_root.mkdir(parents=True)
+        (output_root / "source_basic_pitch.csv").write_text(
+            "start_time_s,end_time_s,pitch_midi,velocity,confidence\n"
+            "0.125,0.500,64,92,0.91\n"
+            "0.500,0.875,67,88,0.84\n",
+            encoding="utf-8",
+        )
+        return 0, "ok", ""
+
+    processing = ProcessingService(
+        store,
+        registry=EngineRegistry(detectors={"basic-pitch": True}),
+        command_runner=fake_runner,
+    )
+
+    transcribed = processing.transcribe(separated.id, stem_id="source", engine_id="basic-pitch")
+
+    assert transcribed.status == "transcribed"
+    assert transcribed.message == "Basic Pitch imported 2 notes."
+    assert [(note.pitch, note.start_sec, note.end_sec) for note in transcribed.notes] == [
+        (64, 0.125, 0.5),
+        (67, 0.5, 0.875),
+    ]
+    assert transcribed.notes[0].velocity == 92
+    assert transcribed.notes[0].confidence == 0.91
+
+
+def test_basic_pitch_adapter_imports_midi_when_csv_is_missing(tmp_path):
+    store = ProjectStore(tmp_path)
+    project = store.create_project("demo.wav", make_wav_bytes())
+    processing = ProcessingService(store)
+    separated = processing.separate(project.id)
+
+    midi_project = store.replace_notes(
+        project.id,
+        [
+            NoteEvent(pitch=60, start_sec=0.0, end_sec=0.5, velocity=90, confidence=0.9),
+            NoteEvent(pitch=72, start_sec=0.5, end_sec=1.0, velocity=80, confidence=0.9),
+        ],
+    )
+    midi_bytes = ExportService(store).export_project(midi_project.id, "midi").content
+
+    def fake_runner(command, cwd, timeout_seconds):
+        output_root = Path(command[1])
+        output_root.mkdir(parents=True)
+        (output_root / "source_basic_pitch.mid").write_bytes(midi_bytes)
+        return 0, "ok", ""
+
+    processing = ProcessingService(
+        store,
+        registry=EngineRegistry(detectors={"basic-pitch": True}),
+        command_runner=fake_runner,
+    )
+
+    transcribed = processing.transcribe(separated.id, stem_id="source", engine_id="basic-pitch")
+
+    assert transcribed.message == "Basic Pitch imported 2 notes."
+    assert [note.pitch for note in transcribed.notes] == [60, 72]
+    assert [note.velocity for note in transcribed.notes] == [90, 80]
+    assert transcribed.notes[1].start_sec == 0.5
+
+
+def test_basic_pitch_adapter_falls_back_when_command_fails(tmp_path):
+    store = ProjectStore(tmp_path)
+    project = store.create_project("demo.wav", make_wav_bytes())
+    processing = ProcessingService(store)
+    separated = processing.separate(project.id)
+
+    def fake_runner(command, cwd, timeout_seconds):
+        return 2, "", "model error"
+
+    processing = ProcessingService(
+        store,
+        registry=EngineRegistry(detectors={"basic-pitch": True}),
+        command_runner=fake_runner,
+    )
+
+    transcribed = processing.transcribe(separated.id, stem_id="source", engine_id="basic-pitch")
+
+    assert transcribed.status == "transcribed"
+    assert transcribed.notes[0].pitch == 60
+    assert transcribed.message is not None
+    assert "Basic Pitch failed with exit code 2" in transcribed.message
+    assert "fallback" in transcribed.message
+
+
 def test_note_replacement_is_sorted_and_persisted(tmp_path):
     store = ProjectStore(tmp_path)
     project = store.create_project("demo.wav", make_wav_bytes())
