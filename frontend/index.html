@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lingpu</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="control-rail" aria-label="Project controls">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div>
+            <h1>Lingpu</h1>
+            <p>Local transcription workbench</p>
+          </div>
+        </div>
+
+        <form id="upload-form" class="upload-box">
+          <label for="audio-file">Audio file</label>
+          <input id="audio-file" name="file" type="file" accept="audio/*" required />
+          <button type="submit">Create project</button>
+        </form>
+
+        <section class="rail-section">
+          <h2>Process</h2>
+          <label for="separation-engine">Separation engine</label>
+          <select id="separation-engine"></select>
+          <button id="separate-button" type="button" disabled>Separate stems</button>
+          <label for="transcription-engine">Transcription engine</label>
+          <select id="transcription-engine"></select>
+          <button id="transcribe-button" type="button" disabled>Transcribe selected stem</button>
+        </section>
+
+        <section class="rail-section">
+          <h2>Export</h2>
+          <div class="button-row">
+            <button id="export-midi" type="button" disabled>MIDI</button>
+            <button id="export-musicxml" type="button" disabled>MusicXML</button>
+            <button id="export-pdf" type="button" disabled>PDF</button>
+          </div>
+        </section>
+
+        <p id="status-line" class="status-line">No project loaded.</p>
+      </aside>
+
+      <section class="score-stage" aria-label="Score preview">
+        <header class="stage-header">
+          <div>
+            <span class="eyebrow">Project</span>
+            <h2 id="project-title">Waiting for audio</h2>
+          </div>
+          <div id="project-meta" class="meta-strip">Upload a WAV, MP3, or M4A file.</div>
+        </header>
+
+        <div class="stem-strip" id="stem-strip" aria-label="Stem list"></div>
+
+        <section class="score-panel">
+          <div class="panel-heading">
+            <h3>Score preview</h3>
+            <span id="score-settings">120 BPM / 4-4</span>
+          </div>
+          <svg id="score-svg" class="score-svg" viewBox="0 0 920 260" role="img" aria-label="Generated notation preview"></svg>
+        </section>
+
+        <section class="roll-panel">
+          <div class="panel-heading">
+            <h3>Piano roll</h3>
+            <span id="note-count">0 notes</span>
+          </div>
+          <div id="piano-roll" class="piano-roll"></div>
+        </section>
+      </section>
+
+      <aside class="editor-rail" aria-label="Note editor">
+        <div class="editor-header">
+          <h2>Notes</h2>
+          <button id="save-notes" type="button" disabled>Save edits</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pitch</th>
+                <th>Start</th>
+                <th>End</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="notes-body"></tbody>
+          </table>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

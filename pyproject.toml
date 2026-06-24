@@ -1,0 +1,50 @@
+[project]
+name = "lingpu"
+version = "0.1.0"
+description = "Local audio-to-score transcription workbench MVP."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "pydantic",
+  "python-multipart",
+  "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2",
+  "pytest",
+]
+separation = [
+  "audio-separator[cpu]",
+  "demucs",
+  "soundfile",
+  "static-ffmpeg",
+]
+transcription = [
+  "basic-pitch",
+  "omnizart",
+]
+models = [
+  "audio-separator[cpu]",
+  "basic-pitch",
+  "demucs",
+  "omnizart",
+  "soundfile",
+  "static-ffmpeg",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["tests"]
+addopts = "--basetemp .pytest-tmp"
