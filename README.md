@@ -54,10 +54,12 @@ python -m venv .venv
 Python 3.12 works for the core app and separation adapters. Use Python 3.11
 when the same environment also needs to run Basic Pitch inference.
 
-Install transcription dependencies when Basic Pitch support is needed:
+Install a Python 3.11 conda environment when Basic Pitch support is needed:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev,separation,transcription]"
+conda create -n lingpu311 python=3.11 -y
+D:\Anaconda\envs\lingpu311\python.exe -m pip install -e ".[dev,separation,transcription]"
+D:\Anaconda\envs\lingpu311\python.exe -m pip install "numpy<2"
 ```
 
 Basic Pitch currently supports Python 3.7-3.11 upstream. In a Python 3.12
@@ -65,6 +67,23 @@ environment the `transcription` extra is skipped by its environment marker, so
 the adapter code is available but the Basic Pitch CLI will remain unavailable
 until the app is run from a compatible Python environment or upstream publishes
 Python 3.12-compatible packages.
+
+Basic Pitch's TensorFlow runtime needs NumPy 1.x, while audio-separator 0.44.x
+declares `numpy>=2`. The `lingpu311` deployment above is verified for Basic
+Pitch and Demucs, but `pip check` will report that audio-separator metadata
+conflict. For strict production isolation, keep audio-separator in a separate
+Python 3.12 environment and point `LINGPU_AUDIO_SEPARATOR_BIN` at that CLI.
+
+Run the server from the Python 3.11 environment with explicit model command
+paths:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+$env:LINGPU_PYTHON_BIN = "D:\Anaconda\envs\lingpu311\python.exe"
+$env:LINGPU_BASIC_PITCH_BIN = "D:\Anaconda\envs\lingpu311\Scripts\basic-pitch.exe"
+$env:LINGPU_AUDIO_SEPARATOR_BIN = "D:\Anaconda\envs\lingpu311\Scripts\audio-separator.exe"
+D:\Anaconda\envs\lingpu311\python.exe scripts\dev_server.py
+```
 
 Install Omnizart separately only when that adapter is being developed:
 

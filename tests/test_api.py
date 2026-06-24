@@ -54,11 +54,11 @@ def test_api_creates_processes_edits_and_exports_project(tmp_path):
 
     transcribed = client.post(
         f"/api/projects/{project_id}/transcribe",
-        json={"stemId": "source", "engineId": "basic-pitch"},
+        json={"stemId": "source", "engineId": "local-placeholder"},
     )
     assert transcribed.status_code == 200
     assert len(transcribed.json()["notes"]) >= 4
-    assert "basic-pitch" in transcribed.json()["message"]
+    assert "placeholder" in transcribed.json()["message"]
 
     patched = client.patch(
         f"/api/projects/{project_id}/notes",

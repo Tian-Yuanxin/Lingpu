@@ -166,7 +166,7 @@ def test_basic_pitch_adapter_imports_note_event_csv(tmp_path):
 
     def fake_runner(command, cwd, timeout_seconds):
         output_root = Path(command[1])
-        output_root.mkdir(parents=True)
+        assert output_root.is_dir()
         (output_root / "source_basic_pitch.csv").write_text(
             "start_time_s,end_time_s,pitch_midi,velocity,confidence\n"
             "0.125,0.500,64,92,0.91\n"
@@ -210,7 +210,7 @@ def test_basic_pitch_adapter_imports_midi_when_csv_is_missing(tmp_path):
 
     def fake_runner(command, cwd, timeout_seconds):
         output_root = Path(command[1])
-        output_root.mkdir(parents=True)
+        assert output_root.is_dir()
         (output_root / "source_basic_pitch.mid").write_bytes(midi_bytes)
         return 0, "ok", ""
 
@@ -226,6 +226,36 @@ def test_basic_pitch_adapter_imports_midi_when_csv_is_missing(tmp_path):
     assert [note.pitch for note in transcribed.notes] == [60, 72]
     assert [note.velocity for note in transcribed.notes] == [90, 80]
     assert transcribed.notes[1].start_sec == 0.5
+
+
+def test_basic_pitch_adapter_imports_csv_with_pitch_bend_values(tmp_path):
+    store = ProjectStore(tmp_path)
+    project = store.create_project("demo.wav", make_wav_bytes())
+    processing = ProcessingService(store)
+    separated = processing.separate(project.id)
+
+    def fake_runner(command, cwd, timeout_seconds):
+        output_root = Path(command[1])
+        assert output_root.is_dir()
+        (output_root / "source_basic_pitch.csv").write_text(
+            "start_time_s,end_time_s,pitch_midi,velocity,pitch_bend\n"
+            "0.023,0.987,69,83,1,1,1,1\n",
+            encoding="utf-8",
+        )
+        return 0, "ok", ""
+
+    processing = ProcessingService(
+        store,
+        registry=EngineRegistry(detectors={"basic-pitch": True}),
+        command_runner=fake_runner,
+    )
+
+    transcribed = processing.transcribe(separated.id, stem_id="source", engine_id="basic-pitch")
+
+    assert transcribed.message == "Basic Pitch imported 1 notes."
+    assert transcribed.notes[0].pitch == 69
+    assert transcribed.notes[0].velocity == 83
+    assert transcribed.notes[0].confidence == 0.9
 
 
 def test_basic_pitch_adapter_falls_back_when_command_fails(tmp_path):

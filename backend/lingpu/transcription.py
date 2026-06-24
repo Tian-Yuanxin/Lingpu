@@ -41,8 +41,8 @@ def _read_note_csv(csv_path: Path) -> list[NoteEvent]:
                 start_sec=_float_value(row.get(start_key)),
                 end_sec=_float_value(row.get(end_key)),
                 pitch=_int_value(row.get(pitch_key)),
-                velocity=_velocity_value(row.get(velocity_key)),
-                confidence=_confidence_value(row.get(confidence_key)),
+                velocity=_velocity_value(row.get(velocity_key) if velocity_key else None),
+                confidence=_confidence_value(row.get(confidence_key) if confidence_key else None),
             )
             for row in reader
         ]

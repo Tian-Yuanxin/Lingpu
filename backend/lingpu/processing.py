@@ -259,7 +259,7 @@ class ProcessingService:
     ) -> Project:
         project_dir = self.store.project_file_path(project.id, "")
         output_root = project_dir / "transcription" / "basic-pitch" / stem.id
-        output_root.parent.mkdir(parents=True, exist_ok=True)
+        output_root.mkdir(parents=True, exist_ok=True)
 
         command = [
             _tool_path("basic-pitch", "LINGPU_BASIC_PITCH_BIN") or "basic-pitch",
@@ -371,10 +371,13 @@ class ProcessingService:
         _add_static_ffmpeg_to_path()
         env = os.environ.copy()
         env["PATH"] = os.pathsep.join([*(_local_bin_dirs()), env.get("PATH", "")])
+        env.setdefault("PYTHONIOENCODING", "utf-8")
         completed = subprocess.run(
             command,
             cwd=cwd,
             capture_output=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             text=True,
             timeout=timeout_seconds,
