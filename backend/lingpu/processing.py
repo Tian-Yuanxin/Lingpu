@@ -61,7 +61,7 @@ class EngineRegistry:
             return True
         if engine_id == "audio-separator":
             return _has_module("audio_separator") or _has_executable("audio-separator")
-        if engine_id == "demucs":
+        if engine_id in {"demucs", "demucs-6s"}:
             return _has_executable("demucs") or _has_module("demucs")
         if engine_id == "uvr":
             return _has_executable("audio-separator") or _has_executable("uvr")
@@ -86,6 +86,12 @@ ENGINE_DEFINITIONS = [
         label="Demucs",
         kind="separation",
         detail="External stem separation command or Python module. Best first target for vocals/drums/bass/other.",
+    ),
+    EngineDefinition(
+        id="demucs-6s",
+        label="Demucs 6 stems",
+        kind="separation",
+        detail="Experimental Demucs htdemucs_6s model for vocals/drums/bass/other/guitar/piano.",
     ),
     EngineDefinition(
         id="uvr",
@@ -146,7 +152,7 @@ class ProcessingService:
 
         if engine.available and engine.id == "local-fallback":
             message = "Using original mix as the editable source stem."
-        elif engine.available and engine.id == "demucs":
+        elif engine.available and engine.id in {"demucs", "demucs-6s"}:
             return self._separate_with_demucs(project, engine)
         elif engine.available and engine.id == "audio-separator":
             return self._separate_with_audio_separator(project, engine)
@@ -206,8 +212,10 @@ class ProcessingService:
             os.environ.get("LINGPU_DEMUCS_DEVICE", "cpu"),
             "-o",
             str(output_root),
-            str(source_path),
         ]
+        if engine.id == "demucs-6s":
+            command.extend(["-n", "htdemucs_6s"])
+        command.append(str(source_path))
         failed = self._run_separation_command(command, project_dir, engine.label)
         if failed is not None:
             return self._save_fallback_stem(project, engine=engine.id, message=failed)
@@ -217,7 +225,7 @@ class ProcessingService:
             message = "Demucs did not produce supported audio stems. Using original mix as a fallback stem."
             return self._save_fallback_stem(project, engine=engine.id, message=message)
 
-        return self._save_generated_stems(project, stems, f"Demucs separated {len(stems)} stems.")
+        return self._save_generated_stems(project, stems, f"{engine.label} separated {len(stems)} stems.")
 
     def _separate_with_audio_separator(self, project: Project, engine: EngineInfo) -> Project:
         project_dir = self.store.project_file_path(project.id, "")

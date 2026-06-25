@@ -8,7 +8,7 @@ and exporting MIDI, MusicXML, or PDF.
 ## Current scope
 
 - Upload an audio file and create a local project under `data/projects/`.
-- Run a separation step with the local fallback, Demucs, or audio-separator.
+- Run a separation step with the local fallback, Demucs, Demucs 6-stem, or audio-separator.
 - Run a transcription step with the local placeholder or Basic Pitch.
 - Edit note pitch, start time, and end time in the browser.
 - Export generated notes as `.mid`, `.musicxml`, or `.pdf`.
@@ -26,6 +26,9 @@ Separation targets:
 - `local-fallback`: always available; uses the original mix as one editable stem.
 - `demucs`: vocals/drums/bass/other stem separation through the local
   `lingpu.demucs_runner` compatibility wrapper.
+- `demucs-6s`: experimental Demucs `htdemucs_6s` model for
+  vocals/drums/bass/other/guitar/piano. Guitar is useful for many tracks;
+  piano can have more bleed and artifacts.
 - `uvr`: available when the audio-separator CLI is installed.
 - `audio-separator`: UVR/MDX-style vocal/instrumental separation through the
   audio-separator CLI.

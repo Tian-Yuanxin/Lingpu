@@ -59,6 +59,7 @@ def test_engine_registry_exposes_separation_and_transcription_options():
         detectors={
             "local-fallback": True,
             "demucs": False,
+            "demucs-6s": False,
             "uvr": False,
             "audio-separator": False,
             "basic-pitch": False,
@@ -74,6 +75,8 @@ def test_engine_registry_exposes_separation_and_transcription_options():
     assert by_id["local-fallback"].available is True
     assert by_id["demucs"].kind == "separation"
     assert by_id["demucs"].available is False
+    assert by_id["demucs-6s"].kind == "separation"
+    assert by_id["demucs-6s"].available is False
     assert by_id["basic-pitch"].kind == "transcription"
     assert by_id["basic-pitch"].available is False
 
@@ -87,6 +90,7 @@ def test_requested_unavailable_engines_are_recorded_with_fallback_message(tmp_pa
             detectors={
                 "local-fallback": True,
                 "demucs": False,
+                "demucs-6s": False,
                 "uvr": False,
                 "audio-separator": False,
                 "basic-pitch": False,
@@ -131,6 +135,34 @@ def test_demucs_adapter_imports_generated_stems(tmp_path):
     assert {stem.id for stem in separated.stems} == {"vocals", "drums", "bass", "other"}
     assert all(stem.engine == "demucs" for stem in separated.stems)
     assert all(store.project_file_path(project.id, stem.audio.path).exists() for stem in separated.stems)
+
+
+def test_demucs_6s_adapter_selects_six_source_model(tmp_path):
+    store = ProjectStore(tmp_path)
+    project = store.create_project("demo.wav", make_wav_bytes())
+
+    def fake_runner(command, cwd, timeout_seconds):
+        assert "-n" in command
+        assert command[command.index("-n") + 1] == "htdemucs_6s"
+        output_root = Path(command[command.index("-o") + 1])
+        track_dir = output_root / "htdemucs_6s" / "source"
+        track_dir.mkdir(parents=True)
+        for name in ["vocals", "drums", "bass", "other", "guitar", "piano"]:
+            (track_dir / f"{name}.wav").write_bytes(make_wav_bytes(0.1))
+        return 0, "ok", ""
+
+    processing = ProcessingService(
+        store,
+        registry=EngineRegistry(detectors={"demucs-6s": True}),
+        command_runner=fake_runner,
+    )
+
+    separated = processing.separate(project.id, engine_id="demucs-6s")
+
+    assert separated.status == "separated"
+    assert separated.message == "Demucs 6 stems separated 6 stems."
+    assert {stem.id for stem in separated.stems} == {"vocals", "drums", "bass", "other", "guitar", "piano"}
+    assert all(stem.engine == "demucs-6s" for stem in separated.stems)
 
 
 def test_audio_separator_adapter_imports_generated_stems(tmp_path):
