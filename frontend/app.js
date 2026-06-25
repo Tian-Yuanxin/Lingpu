@@ -1,9 +1,23 @@
+const SCORE_WINDOW_SECONDS = 16;
+const MAX_SCORE_NOTES = 180;
+const PIANO_ROLL_PIXELS_PER_SECOND = 54;
+
 const state = {
   project: null,
   projects: [],
   engines: [],
   busy: false,
   selectedStemId: null,
+  viewStartSec: 0,
+  playback: {
+    audioContext: null,
+    masterGain: null,
+    isPlaying: false,
+    startOffsetSec: 0,
+    startedAtSec: 0,
+    scheduledNodes: [],
+    animationFrameId: null,
+  },
 };
 
 const els = {
@@ -28,6 +42,13 @@ const els = {
   projectTitle: document.querySelector("#project-title"),
   projectMeta: document.querySelector("#project-meta"),
   stemStrip: document.querySelector("#stem-strip"),
+  notePlayButton: document.querySelector("#note-play-button"),
+  noteStopButton: document.querySelector("#note-stop-button"),
+  playbackTime: document.querySelector("#playback-time"),
+  playbackPlayhead: document.querySelector("#playback-playhead"),
+  viewPrevButton: document.querySelector("#view-prev-button"),
+  viewNextButton: document.querySelector("#view-next-button"),
+  viewWindowLabel: document.querySelector("#view-window-label"),
   scoreSettings: document.querySelector("#score-settings"),
   scoreSvg: document.querySelector("#score-svg"),
   pianoRoll: document.querySelector("#piano-roll"),
@@ -130,6 +151,16 @@ els.scoreSettingsForm.addEventListener("submit", async (event) => {
 els.exportMidi.addEventListener("click", () => download("midi"));
 els.exportMusicxml.addEventListener("click", () => download("musicxml"));
 els.exportPdf.addEventListener("click", () => download("pdf"));
+els.notePlayButton.addEventListener("click", () => {
+  if (state.playback.isPlaying) {
+    pausePlayback();
+  } else {
+    startPlayback();
+  }
+});
+els.noteStopButton.addEventListener("click", () => stopPlayback(true));
+els.viewPrevButton.addEventListener("click", () => advanceViewWindow(-1));
+els.viewNextButton.addEventListener("click", () => advanceViewWindow(1));
 
 loadEngines();
 loadProjects();
@@ -176,6 +207,7 @@ function render() {
   renderProjectHeader();
   renderScoreSettingsForm();
   renderStems();
+  renderPlayback();
   renderScore();
   renderPianoRoll();
   renderNotesTable();
@@ -261,6 +293,27 @@ function renderProjectHeader() {
   els.scoreSettings.textContent = `${settings.tempo} BPM / ${settings.timeSignature} / ${settings.keySignature} / ${settings.quantization}`;
 }
 
+function renderPlayback() {
+  const notes = state.project?.notes || [];
+  const windowRange = scoreWindowRange();
+  const totalDuration = getNotesDuration(notes);
+
+  if (!state.playback.isPlaying && notes.length > 0 && state.playback.startOffsetSec === 0) {
+    state.playback.startOffsetSec = state.viewStartSec;
+  }
+
+  const currentSec = playbackPositionSec();
+  els.viewWindowLabel.textContent = `${formatSeconds(windowRange.start)}-${formatSeconds(windowRange.end)}`;
+  els.playbackTime.textContent = formatSeconds(currentSec);
+  updatePlaybackPlayhead(currentSec);
+
+  els.notePlayButton.textContent = state.playback.isPlaying ? "Pause" : "Play";
+  els.notePlayButton.disabled = state.busy || notes.length === 0;
+  els.noteStopButton.disabled = state.busy || notes.length === 0;
+  els.viewPrevButton.disabled = state.busy || notes.length === 0 || windowRange.start <= 0;
+  els.viewNextButton.disabled = state.busy || notes.length === 0 || windowRange.end >= totalDuration;
+}
+
 function renderScoreSettingsForm() {
   const settings = currentScoreSettings();
   els.scoreTempo.value = String(settings.tempo);
@@ -309,8 +362,10 @@ function renderStems() {
 }
 
 function renderScore() {
-  const notes = state.project?.notes || [];
-  const maxEnd = getMaxEnd(notes);
+  const notes = visibleNotes();
+  const allNotes = state.project?.notes || [];
+  const windowRange = scoreWindowRange();
+  const windowDuration = Math.max(1, windowRange.end - windowRange.start);
   const staffTop = 72;
   const lineGap = 14;
   const staffLeft = 58;
@@ -322,20 +377,26 @@ function renderScore() {
     elements.push(`<line x1="${staffLeft}" y1="${y}" x2="${staffRight}" y2="${y}" stroke="#475049" stroke-width="1.4" />`);
   }
 
-  for (let beat = 0; beat <= maxEnd; beat += 1) {
-    const x = staffLeft + (beat / maxEnd) * (staffRight - staffLeft);
+  for (let beat = Math.ceil(windowRange.start); beat <= windowRange.end; beat += 1) {
+    const x = staffLeft + ((beat - windowRange.start) / windowDuration) * (staffRight - staffLeft);
     elements.push(`<line x1="${x}" y1="50" x2="${x}" y2="166" stroke="#d0d8d2" stroke-width="1" />`);
   }
 
+  elements.push(`<text x="${staffLeft}" y="32" fill="#69736c" font-size="13">${htmlEscape(String(notes.length))}/${htmlEscape(String(allNotes.length))} notes in window</text>`);
+
   notes.forEach((note) => {
-    const x = staffLeft + (note.startSec / maxEnd) * (staffRight - staffLeft);
+    const x = staffLeft + ((note.startSec - windowRange.start) / windowDuration) * (staffRight - staffLeft);
     const y = pitchToStaffY(note.pitch, staffTop, lineGap);
-    elements.push(`<ellipse class="score-note" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="10" ry="7" transform="rotate(-16 ${x.toFixed(1)} ${y.toFixed(1)})" />`);
-    elements.push(`<line class="score-stem" x1="${(x + 9).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + 9).toFixed(1)}" y2="${(y - 44).toFixed(1)}" />`);
+    elements.push(`<ellipse class="score-note" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="6.5" ry="4.8" transform="rotate(-16 ${x.toFixed(1)} ${y.toFixed(1)})" />`);
+    if (notes.length <= 80) {
+      elements.push(`<line class="score-stem" x1="${(x + 6).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + 6).toFixed(1)}" y2="${(y - 32).toFixed(1)}" />`);
+    }
   });
 
-  if (notes.length === 0) {
+  if (allNotes.length === 0) {
     elements.push('<text x="58" y="210" fill="#69736c" font-size="18">No notes yet. Transcribe a stem to populate the score.</text>');
+  } else if (notes.length === 0) {
+    elements.push('<text x="58" y="210" fill="#69736c" font-size="18">No notes in this window.</text>');
   }
 
   els.scoreSvg.innerHTML = elements.join("");
@@ -354,21 +415,31 @@ function renderPianoRoll() {
     return;
   }
 
-  const maxEnd = getMaxEnd(notes);
+  const maxEnd = getNotesDuration(notes);
+  const trackWidth = Math.max(960, Math.ceil(maxEnd * PIANO_ROLL_PIXELS_PER_SECOND));
   const pitches = notes.map((note) => note.pitch);
   const maxPitch = Math.max(...pitches) + 2;
   const minPitch = Math.min(...pitches) - 2;
   const pitchSpan = Math.max(1, maxPitch - minPitch);
+  const track = document.createElement("div");
+  track.className = "piano-roll-track";
+  track.style.width = `${trackWidth}px`;
 
   for (const note of notes) {
     const block = document.createElement("div");
     block.className = "roll-note";
     block.title = `MIDI ${note.pitch}`;
-    block.style.left = `${(note.startSec / maxEnd) * 100}%`;
-    block.style.width = `${Math.max(1.5, ((note.endSec - note.startSec) / maxEnd) * 100)}%`;
+    block.style.left = `${note.startSec * PIANO_ROLL_PIXELS_PER_SECOND}px`;
+    block.style.width = `${Math.max(10, (note.endSec - note.startSec) * PIANO_ROLL_PIXELS_PER_SECOND)}px`;
     block.style.top = `${8 + ((maxPitch - note.pitch) / pitchSpan) * 188}px`;
-    els.pianoRoll.append(block);
+    track.append(block);
   }
+
+  const playhead = document.createElement("div");
+  playhead.className = "roll-playhead";
+  playhead.style.left = `${playbackPositionSec() * PIANO_ROLL_PIXELS_PER_SECOND}px`;
+  track.append(playhead);
+  els.pianoRoll.append(track);
 }
 
 function renderNotesTable() {
@@ -448,6 +519,10 @@ function renderButtons() {
   els.separateButton.disabled = disabled || !hasProject;
   els.transcribeButton.disabled = disabled || !hasProject || !hasStems || !state.selectedStemId;
   els.scoreSettingsFieldset.disabled = disabled || !hasProject;
+  els.notePlayButton.disabled = disabled || !hasNotes;
+  els.noteStopButton.disabled = disabled || !hasNotes;
+  els.viewPrevButton.disabled = disabled || !hasNotes || state.viewStartSec <= 0;
+  els.viewNextButton.disabled = disabled || !hasNotes || scoreWindowRange().end >= getNotesDuration(state.project?.notes || []);
   els.saveNotes.disabled = disabled || !hasProject || !hasNotes;
   els.exportMidi.disabled = disabled || !hasProject || !hasNotes;
   els.exportMusicxml.disabled = disabled || !hasProject || !hasNotes;
@@ -459,8 +534,193 @@ function download(format) {
   window.location.href = `/api/projects/${state.project.id}/export/${format}`;
 }
 
+async function startPlayback() {
+  const notes = state.project?.notes || [];
+  if (notes.length === 0) return;
+
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      setStatus("This browser does not support Web Audio playback.");
+      return;
+    }
+
+    if (!state.playback.audioContext) {
+      state.playback.audioContext = new AudioContextClass();
+      state.playback.masterGain = state.playback.audioContext.createGain();
+      state.playback.masterGain.gain.value = 0.22;
+      state.playback.masterGain.connect(state.playback.audioContext.destination);
+    }
+
+    await state.playback.audioContext.resume();
+    clearScheduledPlayback();
+
+    const totalDuration = getNotesDuration(notes);
+    let startOffset = clamp(
+      state.playback.startOffsetSec || state.viewStartSec,
+      0,
+      totalDuration,
+    );
+    if (startOffset >= totalDuration) startOffset = state.viewStartSec;
+
+    state.playback.startOffsetSec = startOffset;
+    state.playback.startedAtSec = state.playback.audioContext.currentTime - startOffset;
+    state.playback.isPlaying = true;
+    schedulePlaybackNotes(startOffset);
+    tickPlayback();
+    setStatus("Playing transcribed notes.");
+    renderPlayback();
+    renderPianoRoll();
+  } catch (error) {
+    state.playback.isPlaying = false;
+    clearScheduledPlayback();
+    cancelPlaybackFrame();
+    setStatus(`Could not start note playback: ${error.message}`);
+    renderPlayback();
+  }
+}
+
+function pausePlayback() {
+  if (!state.playback.isPlaying) return;
+  state.playback.startOffsetSec = playbackPositionSec();
+  state.playback.isPlaying = false;
+  clearScheduledPlayback();
+  cancelPlaybackFrame();
+  setStatus("Playback paused.");
+  renderPlayback();
+  renderPianoRoll();
+}
+
+function stopPlayback(resetToViewStart = false) {
+  state.playback.isPlaying = false;
+  clearScheduledPlayback();
+  cancelPlaybackFrame();
+  state.playback.startOffsetSec = resetToViewStart ? state.viewStartSec : 0;
+  setStatus("Playback stopped.");
+  renderPlayback();
+  renderPianoRoll();
+}
+
+function schedulePlaybackNotes(startOffsetSec) {
+  const context = state.playback.audioContext;
+  const masterGain = state.playback.masterGain;
+  if (!context || !masterGain) return;
+
+  const now = context.currentTime + 0.04;
+  for (const note of state.project?.notes || []) {
+    if (note.endSec <= startOffsetSec) continue;
+    const relativeStart = Math.max(0, note.startSec - startOffsetSec);
+    const duration = Math.max(0.035, note.endSec - Math.max(note.startSec, startOffsetSec));
+    const when = now + relativeStart;
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    const volume = Math.max(0.03, Math.min(0.28, (note.velocity || 90) / 127 * 0.28));
+
+    oscillator.type = "triangle";
+    oscillator.frequency.value = midiToFrequency(note.pitch);
+    envelope.gain.setValueAtTime(0.0001, when);
+    envelope.gain.exponentialRampToValueAtTime(volume, when + 0.012);
+    envelope.gain.setTargetAtTime(0.0001, when + Math.max(0.02, duration - 0.035), 0.025);
+    oscillator.connect(envelope);
+    envelope.connect(masterGain);
+    oscillator.start(when);
+    oscillator.stop(when + duration + 0.08);
+    state.playback.scheduledNodes.push(oscillator, envelope);
+  }
+}
+
+function clearScheduledPlayback() {
+  for (const node of state.playback.scheduledNodes) {
+    try {
+      if (typeof node.stop === "function") node.stop();
+      if (typeof node.disconnect === "function") node.disconnect();
+    } catch (_error) {
+      // Nodes may already be stopped by the Web Audio clock.
+    }
+  }
+  state.playback.scheduledNodes = [];
+}
+
+function tickPlayback() {
+  if (!state.playback.isPlaying) return;
+  const currentSec = playbackPositionSec();
+  const totalDuration = getNotesDuration(state.project?.notes || []);
+  if (currentSec >= totalDuration) {
+    stopPlayback(true);
+    return;
+  }
+
+  if (currentSec >= state.viewStartSec + SCORE_WINDOW_SECONDS) {
+    state.viewStartSec = clamp(
+      Math.floor(currentSec / SCORE_WINDOW_SECONDS) * SCORE_WINDOW_SECONDS,
+      0,
+      Math.max(0, totalDuration - SCORE_WINDOW_SECONDS),
+    );
+    renderScore();
+    renderPlayback();
+    renderButtons();
+  }
+
+  els.playbackTime.textContent = formatSeconds(currentSec);
+  updatePlaybackPlayhead(currentSec);
+  updateRollPlayhead(currentSec);
+  state.playback.animationFrameId = window.requestAnimationFrame(tickPlayback);
+}
+
+function cancelPlaybackFrame() {
+  if (state.playback.animationFrameId) {
+    window.cancelAnimationFrame(state.playback.animationFrameId);
+    state.playback.animationFrameId = null;
+  }
+}
+
+function playbackPositionSec() {
+  if (!state.playback.isPlaying || !state.playback.audioContext) {
+    return state.playback.startOffsetSec || 0;
+  }
+  return Math.max(0, state.playback.audioContext.currentTime - state.playback.startedAtSec);
+}
+
+function updatePlaybackPlayhead(currentSec) {
+  const totalDuration = getNotesDuration(state.project?.notes || []);
+  const percent = totalDuration > 0 ? clamp(currentSec / totalDuration, 0, 1) * 100 : 0;
+  els.playbackPlayhead.style.width = `${percent}%`;
+}
+
+function updateRollPlayhead(currentSec) {
+  const playhead = els.pianoRoll.querySelector(".roll-playhead");
+  if (!playhead) return;
+  playhead.style.left = `${currentSec * PIANO_ROLL_PIXELS_PER_SECOND}px`;
+}
+
+function advanceViewWindow(direction) {
+  const notes = state.project?.notes || [];
+  if (notes.length === 0) return;
+  const totalDuration = getNotesDuration(notes);
+  state.viewStartSec = clamp(
+    state.viewStartSec + direction * SCORE_WINDOW_SECONDS,
+    0,
+    Math.max(0, totalDuration - SCORE_WINDOW_SECONDS),
+  );
+  if (!state.playback.isPlaying) {
+    state.playback.startOffsetSec = state.viewStartSec;
+  }
+  renderPlayback();
+  renderScore();
+  renderPianoRoll();
+  renderButtons();
+}
+
 function setProject(project, preferredStemId = null) {
-  const previousStemId = state.project?.id === project?.id ? state.selectedStemId : null;
+  const projectChanged = state.project?.id !== project?.id;
+  const previousStemId = !projectChanged ? state.selectedStemId : null;
+  if (projectChanged) {
+    state.viewStartSec = 0;
+    state.playback.startOffsetSec = 0;
+    state.playback.isPlaying = false;
+    clearScheduledPlayback();
+    cancelPlaybackFrame();
+  }
   state.project = project;
 
   const stems = project?.stems || [];
@@ -502,8 +762,54 @@ function scoreSettingsBody() {
   };
 }
 
-function getMaxEnd(notes) {
-  return Math.max(4, ...notes.map((note) => Math.ceil(note.endSec)));
+function visibleNotes() {
+  const notes = state.project?.notes || [];
+  const windowRange = scoreWindowRange();
+  const inWindow = notes.filter(
+    (note) => note.endSec >= windowRange.start && note.startSec <= windowRange.end,
+  );
+  if (inWindow.length <= MAX_SCORE_NOTES) return inWindow;
+
+  const stride = Math.ceil(inWindow.length / MAX_SCORE_NOTES);
+  return inWindow.filter((_note, index) => index % stride === 0).slice(0, MAX_SCORE_NOTES);
+}
+
+function scoreWindowRange() {
+  const notes = state.project?.notes || [];
+  const totalDuration = getNotesDuration(notes);
+  const maxStart = Math.max(0, totalDuration - SCORE_WINDOW_SECONDS);
+  const start = clamp(state.viewStartSec, 0, maxStart);
+  state.viewStartSec = start;
+  return {
+    start,
+    end: Math.min(totalDuration, start + SCORE_WINDOW_SECONDS),
+  };
+}
+
+function getNotesDuration(notes) {
+  return Math.max(0, ...notes.map((note) => note.endSec || 0));
+}
+
+function midiToFrequency(pitch) {
+  return 440 * 2 ** ((pitch - 69) / 12);
+}
+
+function formatSeconds(seconds) {
+  return `${Number(seconds || 0).toFixed(2)}s`;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function htmlEscape(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
 }
 
 function pitchToStaffY(pitch, staffTop, lineGap) {

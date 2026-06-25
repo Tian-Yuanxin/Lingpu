@@ -285,6 +285,52 @@ audio {
   height: 34px;
 }
 
+.playback-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248, 250, 246, 0.92);
+}
+
+.transport-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.transport-controls button,
+.view-button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.playback-meter {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.playback-timeline {
+  height: 10px;
+  border-radius: 999px;
+  background: #d7dfd9;
+  overflow: hidden;
+}
+
+.playback-playhead {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--red);
+}
+
 .stem-select {
   justify-self: start;
   min-height: 32px;
@@ -321,10 +367,27 @@ audio {
   font-size: 16px;
 }
 
+.score-window-controls {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+#view-window-label {
+  min-width: 104px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
 .score-svg {
   display: block;
   width: 100%;
-  min-height: 260px;
+  height: 260px;
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .score-note {
@@ -338,10 +401,18 @@ audio {
 
 .piano-roll {
   position: relative;
-  height: 220px;
+  height: 260px;
+  overflow-x: auto;
+  overflow-y: hidden;
   background:
     linear-gradient(90deg, rgba(22, 26, 24, 0.07) 1px, transparent 1px) 0 0 / 64px 100%,
     repeating-linear-gradient(0deg, rgba(22, 26, 24, 0.045) 0 1px, transparent 1px 18px);
+}
+
+.piano-roll-track {
+  position: relative;
+  min-width: 100%;
+  height: 100%;
 }
 
 .roll-note {
@@ -351,6 +422,15 @@ audio {
   border-radius: 3px;
   background: var(--teal);
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+
+.roll-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--red);
+  box-shadow: 0 0 0 1px rgba(189, 77, 66, 0.18);
 }
 
 .editor-rail {

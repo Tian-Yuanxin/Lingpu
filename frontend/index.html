@@ -107,10 +107,28 @@
 
         <div class="stem-strip" id="stem-strip" aria-label="Stem list"></div>
 
+        <section class="playback-strip" aria-label="Transcribed note playback">
+          <div class="transport-controls">
+            <button id="note-play-button" type="button" disabled>Play</button>
+            <button id="note-stop-button" type="button" disabled>Stop</button>
+          </div>
+          <div class="playback-meter">
+            <span id="playback-time">0.00s</span>
+            <div class="playback-timeline" aria-hidden="true">
+              <div id="playback-playhead" class="playback-playhead"></div>
+            </div>
+          </div>
+        </section>
+
         <section class="score-panel">
           <div class="panel-heading">
             <h3>Score preview</h3>
-            <span id="score-settings">120 BPM / 4-4</span>
+            <div class="score-window-controls">
+              <button id="view-prev-button" class="view-button" type="button" disabled>Prev</button>
+              <span id="view-window-label">0.00s-0.00s</span>
+              <button id="view-next-button" class="view-button" type="button" disabled>Next</button>
+              <span id="score-settings">120 BPM / 4/4 / C / 1/16</span>
+            </div>
           </div>
           <svg id="score-svg" class="score-svg" viewBox="0 0 920 260" role="img" aria-label="Generated notation preview"></svg>
         </section>
