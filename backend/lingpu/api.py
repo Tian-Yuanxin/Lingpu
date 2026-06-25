@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .exporters import ExportService
-from .models import NotesPatch, Project, SeparateRequest, TranscribeRequest
+from .models import NotesPatch, Project, ScoreSettings, SeparateRequest, TranscribeRequest
 from .processing import ProcessingService
 from .store import ProjectNotFoundError, ProjectStore
 
@@ -39,9 +39,17 @@ def create_app(storage_root: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return _project_response(project)
 
+    @app.get("/api/projects")
+    def list_projects():
+        return jsonable_encoder(store.list_projects(), by_alias=True)
+
     @app.get("/api/projects/{project_id}")
     def get_project(project_id: str):
         return _project_response(store.get_project(project_id))
+
+    @app.patch("/api/projects/{project_id}/score-settings")
+    def save_score_settings(project_id: str, score_settings: ScoreSettings):
+        return _project_response(store.save_score_settings(project_id, score_settings))
 
     @app.post("/api/projects/{project_id}/separate")
     def separate_project(project_id: str, request: SeparateRequest | None = None):

@@ -51,7 +51,8 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 3px solid rgba(214, 155, 53, 0.8);
   outline-offset: 2px;
 }
@@ -170,6 +171,29 @@ button:disabled {
   color: #8d9991;
 }
 
+.settings-form fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-form input,
+.settings-form select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(248, 250, 246, 0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--rail-soft);
+  color: #edf4ef;
+}
+
+.settings-form fieldset:disabled {
+  opacity: 0.62;
+}
+
 .button-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -242,6 +266,11 @@ button:disabled {
   background: rgba(248, 250, 246, 0.84);
 }
 
+.stem-item.is-selected {
+  border-color: var(--teal-dark);
+  box-shadow: inset 0 0 0 1px var(--teal-dark);
+}
+
 .stem-item strong {
   font-size: 14px;
 }
@@ -254,6 +283,17 @@ button:disabled {
 audio {
   width: 100%;
   height: 34px;
+}
+
+.stem-select {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.stem-item.is-selected .stem-select {
+  background: var(--rail);
 }
 
 .score-panel,

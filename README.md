@@ -74,8 +74,8 @@ Pitch and Demucs, but `pip check` will report that audio-separator metadata
 conflict. For strict production isolation, keep audio-separator in a separate
 Python 3.12 environment and point `LINGPU_AUDIO_SEPARATOR_BIN` at that CLI.
 
-Run the server from the Python 3.11 environment with explicit model command
-paths:
+The local launch script in the `Run locally` section sets the verified
+`lingpu311` paths. If you start manually, use explicit model command paths:
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
@@ -115,8 +115,33 @@ voice line.
 
 ## Run locally
 
+Use the Windows PowerShell launcher for the verified `lingpu311` conda
+environment:
+
 ```powershell
-.\.venv\Scripts\python.exe scripts\dev_server.py
+.\scripts\dev_server_lingpu311.ps1
+```
+
+If the Python executable is installed elsewhere, override only that path:
+
+```powershell
+.\scripts\dev_server_lingpu311.ps1 -PythonPath "D:\Anaconda\envs\lingpu311\python.exe"
+```
+
+The script prepends the conda environment, `Scripts`, `Library\bin`, and
+`Library\usr\bin` directories to `PATH`, sets `PYTHONIOENCODING`,
+`LINGPU_PYTHON_BIN`, `LINGPU_BASIC_PITCH_BIN`, and
+`LINGPU_AUDIO_SEPARATOR_BIN`, starts the server from the repository root, and
+prints `http://127.0.0.1:8000`.
+
+Manual equivalent:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+$env:LINGPU_PYTHON_BIN = "D:\Anaconda\envs\lingpu311\python.exe"
+$env:LINGPU_BASIC_PITCH_BIN = "D:\Anaconda\envs\lingpu311\Scripts\basic-pitch.exe"
+$env:LINGPU_AUDIO_SEPARATOR_BIN = "D:\Anaconda\envs\lingpu311\Scripts\audio-separator.exe"
+D:\Anaconda\envs\lingpu311\python.exe scripts\dev_server.py
 ```
 
 Open `http://127.0.0.1:8000`.

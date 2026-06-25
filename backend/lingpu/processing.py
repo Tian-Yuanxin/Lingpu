@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .models import EngineInfo, NoteEvent, Project, ScoreSettings, Stem, StoredFile
+from .models import EngineInfo, NoteEvent, Project, Stem, StoredFile
 from .store import ProjectStore
 from .transcription import import_transcription_notes
 
@@ -360,7 +360,6 @@ class ProcessingService:
             update={
                 "status": "transcribed",
                 "notes": notes,
-                "score_settings": ScoreSettings(),
                 "message": message,
             }
         )

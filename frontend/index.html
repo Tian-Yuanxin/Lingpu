@@ -24,6 +24,13 @@
         </form>
 
         <section class="rail-section">
+          <h2>Recent projects</h2>
+          <label for="recent-projects">Open project</label>
+          <select id="recent-projects"></select>
+          <button id="open-project-button" type="button" disabled>Open project</button>
+        </section>
+
+        <section class="rail-section">
           <h2>Process</h2>
           <label for="separation-engine">Separation engine</label>
           <select id="separation-engine"></select>
@@ -31,6 +38,50 @@
           <label for="transcription-engine">Transcription engine</label>
           <select id="transcription-engine"></select>
           <button id="transcribe-button" type="button" disabled>Transcribe selected stem</button>
+        </section>
+
+        <section class="rail-section">
+          <h2>Score settings</h2>
+          <form id="score-settings-form" class="settings-form">
+            <fieldset id="score-settings-fieldset" disabled>
+              <label for="score-tempo">Tempo</label>
+              <input id="score-tempo" name="tempo" type="number" min="40" max="240" step="1" value="120" required />
+              <label for="score-time-signature">Time signature</label>
+              <select id="score-time-signature" name="timeSignature" required>
+                <option value="2/4">2/4</option>
+                <option value="3/4">3/4</option>
+                <option value="4/4" selected>4/4</option>
+                <option value="6/8">6/8</option>
+                <option value="12/8">12/8</option>
+              </select>
+              <label for="score-key-signature">Key signature</label>
+              <select id="score-key-signature" name="keySignature" required>
+                <option value="Cb">Cb</option>
+                <option value="Gb">Gb</option>
+                <option value="Db">Db</option>
+                <option value="Ab">Ab</option>
+                <option value="Eb">Eb</option>
+                <option value="Bb">Bb</option>
+                <option value="F">F</option>
+                <option value="C" selected>C</option>
+                <option value="G">G</option>
+                <option value="D">D</option>
+                <option value="A">A</option>
+                <option value="E">E</option>
+                <option value="B">B</option>
+                <option value="F#">F#</option>
+                <option value="C#">C#</option>
+              </select>
+              <label for="score-quantization">Quantization</label>
+              <select id="score-quantization" name="quantization" required>
+                <option value="1/4">1/4</option>
+                <option value="1/8">1/8</option>
+                <option value="1/16" selected>1/16</option>
+                <option value="1/32">1/32</option>
+              </select>
+              <button id="save-score-settings" type="submit">Save settings</button>
+            </fieldset>
+          </form>
         </section>
 
         <section class="rail-section">

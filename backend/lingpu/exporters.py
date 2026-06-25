@@ -82,6 +82,8 @@ def _write_variable_length_quantity(value: int) -> bytes:
 def _write_musicxml(project: Project) -> bytes:
     divisions = 4
     tempo = max(project.score_settings.tempo, 1)
+    fifths = _key_fifths(project.score_settings.key_signature)
+    beats, beat_type = _time_signature_parts(project.score_settings.time_signature)
     quarter_seconds = 60 / tempo
     notes_xml = "\n".join(_musicxml_note(note, divisions, quarter_seconds) for note in project.notes)
     title = html.escape(project.title)
@@ -100,8 +102,8 @@ def _write_musicxml(project: Project) -> bytes:
     <measure number="1">
       <attributes>
         <divisions>{divisions}</divisions>
-        <key><fifths>0</fifths></key>
-        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <key><fifths>{fifths}</fifths></key>
+        <time><beats>{beats}</beats><beat-type>{beat_type}</beat-type></time>
         <clef><sign>G</sign><line>2</line></clef>
       </attributes>
       <direction placement="above">
@@ -114,6 +116,38 @@ def _write_musicxml(project: Project) -> bytes:
 </score-partwise>
 """
     return xml.encode("utf-8")
+
+
+def _time_signature_parts(value: str) -> tuple[int, int]:
+    try:
+        beats_text, beat_type_text = value.split("/", 1)
+        beats = int(beats_text)
+        beat_type = int(beat_type_text)
+    except ValueError:
+        return 4, 4
+    if beats < 1 or beats > 32 or beat_type not in {2, 4, 8, 16}:
+        return 4, 4
+    return beats, beat_type
+
+
+def _key_fifths(value: str) -> int:
+    return {
+        "Cb": -7,
+        "Gb": -6,
+        "Db": -5,
+        "Ab": -4,
+        "Eb": -3,
+        "Bb": -2,
+        "F": -1,
+        "C": 0,
+        "G": 1,
+        "D": 2,
+        "A": 3,
+        "E": 4,
+        "B": 5,
+        "F#": 6,
+        "C#": 7,
+    }.get(value.strip(), 0)
 
 
 def _musicxml_note(note: NoteEvent, divisions: int, quarter_seconds: float) -> str:

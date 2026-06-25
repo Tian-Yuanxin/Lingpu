@@ -95,3 +95,70 @@ def test_api_rejects_unknown_processing_engine(tmp_path):
 
     assert separated.status_code == 400
     assert "unknown engine" in separated.json()["detail"]
+
+
+def test_api_lists_projects_and_patches_score_settings_with_aliases(tmp_path):
+    client = TestClient(create_app(storage_root=tmp_path))
+    first = client.post(
+        "/api/projects",
+        files={"file": ("first.wav", make_wav_bytes(), "audio/wav")},
+    ).json()
+    second = client.post(
+        "/api/projects",
+        files={"file": ("second.wav", make_wav_bytes(), "audio/wav")},
+    ).json()
+
+    patched = client.patch(
+        f"/api/projects/{first['id']}/score-settings",
+        json={
+            "tempo": 96,
+            "timeSignature": "3/4",
+            "keySignature": "G",
+            "quantization": "1/8",
+        },
+    )
+    assert patched.status_code == 200
+    patched_body = patched.json()
+    assert patched_body["scoreSettings"]["timeSignature"] == "3/4"
+    assert patched_body["scoreSettings"]["keySignature"] == "G"
+    assert "score_settings" not in patched_body
+    assert "time_signature" not in patched_body["scoreSettings"]
+
+    reloaded = client.get(f"/api/projects/{first['id']}")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["scoreSettings"]["tempo"] == 96
+
+    listed = client.get("/api/projects")
+    assert listed.status_code == 200
+    listed_body = listed.json()
+    assert [project["id"] for project in listed_body] == [first["id"], second["id"]]
+    assert "updatedAt" in listed_body[0]
+    assert "updated_at" not in listed_body[0]
+
+
+def test_api_score_settings_patch_returns_404_for_missing_project(tmp_path):
+    client = TestClient(create_app(storage_root=tmp_path))
+
+    response = client.patch(
+        "/api/projects/000000000000/score-settings",
+        json={"tempo": 96, "timeSignature": "3/4", "keySignature": "G", "quantization": "1/8"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "project not found"
+
+
+def test_api_rejects_invalid_score_settings(tmp_path):
+    client = TestClient(create_app(storage_root=tmp_path))
+    created = client.post(
+        "/api/projects",
+        files={"file": ("demo.wav", make_wav_bytes(), "audio/wav")},
+    )
+    project_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/projects/{project_id}/score-settings",
+        json={"tempo": 0, "timeSignature": "3/4", "keySignature": "G", "quantization": "1/7"},
+    )
+
+    assert response.status_code == 422

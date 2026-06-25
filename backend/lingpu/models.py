@@ -41,11 +41,53 @@ class EngineInfo(AppModel):
     detail: str
 
 
+MAJOR_KEY_SIGNATURES = {
+    "Cb",
+    "Gb",
+    "Db",
+    "Ab",
+    "Eb",
+    "Bb",
+    "F",
+    "C",
+    "G",
+    "D",
+    "A",
+    "E",
+    "B",
+    "F#",
+    "C#",
+}
+
+
 class ScoreSettings(AppModel):
-    tempo: int = 120
+    tempo: int = Field(default=120, ge=40, le=240)
     time_signature: str = "4/4"
     key_signature: str = "C"
-    quantization: str = "1/16"
+    quantization: Literal["1/4", "1/8", "1/16", "1/32"] = "1/16"
+
+    @field_validator("time_signature")
+    @classmethod
+    def time_signature_must_be_supported(cls, value: str) -> str:
+        parts = value.strip().split("/")
+        if len(parts) != 2:
+            raise ValueError("time_signature must use beats/beat-type format")
+        try:
+            beats = int(parts[0])
+            beat_type = int(parts[1])
+        except ValueError as error:
+            raise ValueError("time_signature must use numeric values") from error
+        if beats < 1 or beats > 32 or beat_type not in {2, 4, 8, 16}:
+            raise ValueError("time_signature is not supported")
+        return f"{beats}/{beat_type}"
+
+    @field_validator("key_signature")
+    @classmethod
+    def key_signature_must_be_supported(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in MAJOR_KEY_SIGNATURES:
+            raise ValueError("key_signature is not supported")
+        return normalized
 
 
 class NoteEvent(AppModel):

@@ -1,16 +1,26 @@
 const state = {
   project: null,
+  projects: [],
   engines: [],
   busy: false,
+  selectedStemId: null,
 };
 
 const els = {
   uploadForm: document.querySelector("#upload-form"),
   audioFile: document.querySelector("#audio-file"),
+  recentProjects: document.querySelector("#recent-projects"),
+  openProjectButton: document.querySelector("#open-project-button"),
   separationEngine: document.querySelector("#separation-engine"),
   separateButton: document.querySelector("#separate-button"),
   transcriptionEngine: document.querySelector("#transcription-engine"),
   transcribeButton: document.querySelector("#transcribe-button"),
+  scoreSettingsForm: document.querySelector("#score-settings-form"),
+  scoreSettingsFieldset: document.querySelector("#score-settings-fieldset"),
+  scoreTempo: document.querySelector("#score-tempo"),
+  scoreTimeSignature: document.querySelector("#score-time-signature"),
+  scoreKeySignature: document.querySelector("#score-key-signature"),
+  scoreQuantization: document.querySelector("#score-quantization"),
   exportMidi: document.querySelector("#export-midi"),
   exportMusicxml: document.querySelector("#export-musicxml"),
   exportPdf: document.querySelector("#export-pdf"),
@@ -35,33 +45,49 @@ els.uploadForm.addEventListener("submit", async (event) => {
   body.append("file", file);
 
   await runTask("Creating project...", async () => {
-    state.project = await api("/api/projects", { method: "POST", body });
+    const project = await api("/api/projects", { method: "POST", body });
+    setProject(project, project.stems?.[0]?.id || null);
+    rememberProject(project);
     setStatus("Project created. Run separation next.");
     render();
   });
 });
 
+els.openProjectButton.addEventListener("click", () => {
+  const project = state.projects.find((candidate) => candidate.id === els.recentProjects.value);
+  if (!project) return;
+
+  setProject(project);
+  setStatus("Project opened.");
+  render();
+});
+
 els.separateButton.addEventListener("click", async () => {
   if (!state.project) return;
   await runTask("Separating stems...", async () => {
-    state.project = await api(`/api/projects/${state.project.id}/separate`, {
+    const project = await api(`/api/projects/${state.project.id}/separate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engineId: els.separationEngine.value }),
     });
+    setProject(project, project.stems?.[0]?.id || null);
+    rememberProject(project);
     setStatus(state.project.message || "Stem separation finished.");
     render();
   });
 });
 
 els.transcribeButton.addEventListener("click", async () => {
-  if (!state.project || state.project.stems.length === 0) return;
+  if (!state.project || !state.selectedStemId) return;
+  const selectedStemId = state.selectedStemId;
   await runTask("Transcribing notes...", async () => {
-    state.project = await api(`/api/projects/${state.project.id}/transcribe`, {
+    const project = await api(`/api/projects/${state.project.id}/transcribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stemId: state.project.stems[0].id, engineId: els.transcriptionEngine.value }),
+      body: JSON.stringify({ stemId: selectedStemId, engineId: els.transcriptionEngine.value }),
     });
+    setProject(project, selectedStemId);
+    rememberProject(project);
     setStatus(state.project.message || "Transcription finished.");
     render();
   });
@@ -69,13 +95,34 @@ els.transcribeButton.addEventListener("click", async () => {
 
 els.saveNotes.addEventListener("click", async () => {
   if (!state.project) return;
+  const selectedStemId = state.selectedStemId;
   await runTask("Saving edits...", async () => {
-    state.project = await api(`/api/projects/${state.project.id}/notes`, {
+    const project = await api(`/api/projects/${state.project.id}/notes`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notes: state.project.notes }),
     });
+    setProject(project, selectedStemId);
+    rememberProject(project);
     setStatus("Note edits saved.");
+    render();
+  });
+});
+
+els.scoreSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.project) return;
+  const selectedStemId = state.selectedStemId;
+
+  await runTask("Saving score settings...", async () => {
+    const project = await api(`/api/projects/${state.project.id}/score-settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(scoreSettingsBody()),
+    });
+    setProject(project, selectedStemId);
+    rememberProject(project);
+    setStatus("Score settings saved.");
     render();
   });
 });
@@ -85,6 +132,7 @@ els.exportMusicxml.addEventListener("click", () => download("musicxml"));
 els.exportPdf.addEventListener("click", () => download("pdf"));
 
 loadEngines();
+loadProjects();
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -124,7 +172,9 @@ function setStatus(message) {
 
 function render() {
   renderEngineOptions();
+  renderRecentProjects();
   renderProjectHeader();
+  renderScoreSettingsForm();
   renderStems();
   renderScore();
   renderPianoRoll();
@@ -138,6 +188,15 @@ async function loadEngines() {
     render();
   } catch (error) {
     setStatus(`Could not load engine list: ${error.message}`);
+  }
+}
+
+async function loadProjects() {
+  try {
+    state.projects = await api("/api/projects");
+    render();
+  } catch (error) {
+    setStatus(`Could not load recent projects: ${error.message}`);
   }
 }
 
@@ -164,19 +223,50 @@ function renderEngineSelect(select, kind, fallbackId) {
   select.value = hasPrevious ? previous : fallbackId;
 }
 
+function renderRecentProjects() {
+  const preferred = state.project?.id || els.recentProjects.value || "";
+  els.recentProjects.replaceChildren();
+
+  if (state.projects.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No recent projects";
+    els.recentProjects.append(option);
+    return;
+  }
+
+  for (const project of state.projects) {
+    const option = document.createElement("option");
+    option.value = project.id;
+    option.textContent = project.title || project.originalFilename || project.id;
+    els.recentProjects.append(option);
+  }
+
+  const hasPreferred = state.projects.some((project) => project.id === preferred);
+  els.recentProjects.value = hasPreferred ? preferred : state.projects[0].id;
+}
+
 function renderProjectHeader() {
   const project = state.project;
   if (!project) {
     els.projectTitle.textContent = "Waiting for audio";
     els.projectMeta.textContent = "Upload a WAV, MP3, or M4A file.";
-    els.scoreSettings.textContent = "120 BPM / 4-4";
+    els.scoreSettings.textContent = "120 BPM / 4/4 / C / 1/16";
     return;
   }
 
   els.projectTitle.textContent = project.title;
   els.projectMeta.textContent = `${project.status} / ${project.originalFilename}`;
-  const settings = project.scoreSettings || { tempo: 120, timeSignature: "4/4" };
-  els.scoreSettings.textContent = `${settings.tempo} BPM / ${settings.timeSignature}`;
+  const settings = currentScoreSettings();
+  els.scoreSettings.textContent = `${settings.tempo} BPM / ${settings.timeSignature} / ${settings.keySignature} / ${settings.quantization}`;
+}
+
+function renderScoreSettingsForm() {
+  const settings = currentScoreSettings();
+  els.scoreTempo.value = String(settings.tempo);
+  els.scoreTimeSignature.value = settings.timeSignature;
+  els.scoreKeySignature.value = settings.keySignature;
+  els.scoreQuantization.value = settings.quantization;
 }
 
 function renderStems() {
@@ -194,7 +284,8 @@ function renderStems() {
 
   for (const stem of stems) {
     const item = document.createElement("article");
-    item.className = "stem-item";
+    item.className = stem.id === state.selectedStemId ? "stem-item is-selected" : "stem-item";
+    item.setAttribute("aria-selected", stem.id === state.selectedStemId ? "true" : "false");
 
     const label = document.createElement("strong");
     label.textContent = stem.label;
@@ -206,7 +297,13 @@ function renderStems() {
     audio.controls = true;
     audio.src = `/api/projects/${project.id}/files/${encodeURIComponent(stem.audio.path)}`;
 
-    item.append(label, engine, audio);
+    const selectButton = document.createElement("button");
+    selectButton.type = "button";
+    selectButton.className = "stem-select";
+    selectButton.textContent = stem.id === state.selectedStemId ? "Selected" : "Select";
+    selectButton.addEventListener("click", () => selectStem(stem.id));
+
+    item.append(label, engine, audio, selectButton);
     els.stemStrip.append(item);
   }
 }
@@ -344,10 +441,13 @@ function renderButtons() {
   const hasNotes = (state.project?.notes || []).length > 0;
   const disabled = state.busy;
 
+  els.recentProjects.disabled = disabled || state.projects.length === 0;
+  els.openProjectButton.disabled = disabled || state.projects.length === 0 || !els.recentProjects.value;
   els.separationEngine.disabled = disabled || state.engines.length === 0;
   els.transcriptionEngine.disabled = disabled || state.engines.length === 0;
   els.separateButton.disabled = disabled || !hasProject;
-  els.transcribeButton.disabled = disabled || !hasProject || !hasStems;
+  els.transcribeButton.disabled = disabled || !hasProject || !hasStems || !state.selectedStemId;
+  els.scoreSettingsFieldset.disabled = disabled || !hasProject;
   els.saveNotes.disabled = disabled || !hasProject || !hasNotes;
   els.exportMidi.disabled = disabled || !hasProject || !hasNotes;
   els.exportMusicxml.disabled = disabled || !hasProject || !hasNotes;
@@ -357,6 +457,49 @@ function renderButtons() {
 function download(format) {
   if (!state.project) return;
   window.location.href = `/api/projects/${state.project.id}/export/${format}`;
+}
+
+function setProject(project, preferredStemId = null) {
+  const previousStemId = state.project?.id === project?.id ? state.selectedStemId : null;
+  state.project = project;
+
+  const stems = project?.stems || [];
+  const candidateStemId = preferredStemId || previousStemId;
+  if (stems.length === 0) {
+    state.selectedStemId = null;
+    return;
+  }
+
+  state.selectedStemId = stems.some((stem) => stem.id === candidateStemId) ? candidateStemId : stems[0].id;
+}
+
+function rememberProject(project) {
+  if (!project) return;
+  state.projects = [project, ...state.projects.filter((candidate) => candidate.id !== project.id)];
+}
+
+function selectStem(stemId) {
+  state.selectedStemId = stemId;
+  renderStems();
+  renderButtons();
+}
+
+function currentScoreSettings() {
+  return state.project?.scoreSettings || {
+    tempo: 120,
+    timeSignature: "4/4",
+    keySignature: "C",
+    quantization: "1/16",
+  };
+}
+
+function scoreSettingsBody() {
+  return {
+    tempo: Number(els.scoreTempo.value),
+    timeSignature: els.scoreTimeSignature.value,
+    keySignature: els.scoreKeySignature.value,
+    quantization: els.scoreQuantization.value,
+  };
 }
 
 function getMaxEnd(notes) {

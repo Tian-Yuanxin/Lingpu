@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from .models import NoteEvent, Project, StoredFile, safe_title, utc_now
+from .models import NoteEvent, Project, ScoreSettings, StoredFile, safe_title, utc_now
 
 
 class ProjectNotFoundError(KeyError):
@@ -52,6 +52,13 @@ class ProjectStore:
             raise ProjectNotFoundError(project_id)
         return Project.model_validate_json(metadata_path.read_text(encoding="utf-8"))
 
+    def list_projects(self) -> list[Project]:
+        projects = [
+            Project.model_validate_json(metadata_path.read_text(encoding="utf-8"))
+            for metadata_path in self.projects_root.glob("*/project.json")
+        ]
+        return sorted(projects, key=lambda project: project.updated_at, reverse=True)
+
     def save_project(self, project: Project) -> Project:
         project = project.with_updated_timestamp()
         project_dir = self._project_dir(project.id)
@@ -66,6 +73,10 @@ class ProjectStore:
         project = self.get_project(project_id)
         sorted_notes = sorted(notes, key=lambda note: (note.start_sec, note.pitch, note.end_sec))
         return self.save_project(project.model_copy(update={"notes": sorted_notes, "status": "edited"}))
+
+    def save_score_settings(self, project_id: str, score_settings: ScoreSettings) -> Project:
+        project = self.get_project(project_id)
+        return self.save_project(project.model_copy(update={"score_settings": score_settings}))
 
     def source_audio_path(self, project_id: str) -> Path:
         project = self.get_project(project_id)

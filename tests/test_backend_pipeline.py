@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from lingpu.exporters import ExportService
-from lingpu.models import NoteEvent
+from lingpu.models import NoteEvent, ScoreSettings
 from lingpu.processing import EngineRegistry, ProcessingService
 from lingpu.store import ProjectStore
 
@@ -298,9 +298,38 @@ def test_note_replacement_is_sorted_and_persisted(tmp_path):
     assert [note.pitch for note in reloaded.notes] == [64, 67]
 
 
+def test_score_settings_are_persisted_and_projects_are_listed_by_recent_update(tmp_path):
+    store = ProjectStore(tmp_path)
+    first = store.create_project("first.wav", make_wav_bytes())
+    second = store.create_project("second.wav", make_wav_bytes())
+
+    updated = store.save_score_settings(
+        first.id,
+        ScoreSettings(tempo=96, time_signature="3/4", key_signature="G", quantization="1/8"),
+    )
+    reloaded = store.get_project(first.id)
+    projects = store.list_projects()
+    processing = ProcessingService(store)
+    separated = processing.separate(first.id)
+    transcribed = processing.transcribe(separated.id, stem_id="source")
+
+    assert updated.score_settings.tempo == 96
+    assert reloaded.score_settings.time_signature == "3/4"
+    assert transcribed.score_settings.tempo == 96
+    assert transcribed.score_settings.time_signature == "3/4"
+    assert transcribed.score_settings.key_signature == "G"
+    assert transcribed.score_settings.quantization == "1/8"
+    assert projects[0].id == first.id
+    assert projects[1].id == second.id
+
+
 def test_exports_generate_midi_musicxml_and_pdf_payloads(tmp_path):
     store = ProjectStore(tmp_path)
     project = store.create_project("demo.wav", make_wav_bytes())
+    project = store.save_score_settings(
+        project.id,
+        ScoreSettings(tempo=96, time_signature="3/4", key_signature="G", quantization="1/8"),
+    )
     store.replace_notes(
         project.id,
         [
@@ -321,6 +350,8 @@ def test_exports_generate_midi_musicxml_and_pdf_payloads(tmp_path):
 
     assert musicxml.media_type == "application/vnd.recordare.musicxml+xml"
     assert b"<score-partwise" in musicxml.content
+    assert b"<key><fifths>1</fifths></key>" in musicxml.content
+    assert b"<time><beats>3</beats><beat-type>4</beat-type></time>" in musicxml.content
     assert b"<step>C</step>" in musicxml.content
 
     assert pdf.media_type == "application/pdf"
