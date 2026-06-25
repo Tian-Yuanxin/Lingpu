@@ -81,3 +81,24 @@ def test_frontend_windows_dense_score_and_scrolls_piano_roll():
     assert "advanceViewWindow" in js
     assert "overflow-x: auto" in css
     assert ".piano-roll-track" in css
+
+
+def test_frontend_uses_synchronized_stem_mixer():
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "frontend" / "styles.css").read_text(encoding="utf-8")
+    js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="stem-play-button"' in html
+    assert 'id="stem-stop-button"' in html
+    assert 'id="stem-time"' in html
+    assert 'id="stem-playhead"' in html
+    assert "stemMixer" in js
+    assert "toggleStemPlayback" in js
+    assert "syncStemAudioElements" in js
+    assert "setStemVolume" in js
+    assert "setStemEnabled" in js
+    assert 'type = "range"' in js
+    assert 'type = "checkbox"' in js
+    assert "audio.controls = true" not in js
+    assert ".mixer-panel" in css
+    assert ".track-row" in css

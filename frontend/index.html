@@ -105,7 +105,20 @@
           <div id="project-meta" class="meta-strip">Upload a WAV, MP3, or M4A file.</div>
         </header>
 
-        <div class="stem-strip" id="stem-strip" aria-label="Stem list"></div>
+        <section class="mixer-panel" aria-label="Stem mixer">
+          <div class="mixer-header">
+            <h3>Stem mixer</h3>
+            <div class="stem-transport">
+              <button id="stem-play-button" type="button" disabled>Play</button>
+              <button id="stem-stop-button" type="button" disabled>Stop</button>
+              <span id="stem-time">0:00 / --:--</span>
+              <div class="stem-timeline" aria-hidden="true">
+                <div id="stem-playhead" class="stem-playhead"></div>
+              </div>
+            </div>
+          </div>
+          <div class="stem-strip" id="stem-strip" aria-label="Stem list"></div>
+        </section>
 
         <section class="playback-strip" aria-label="Transcribed note playback">
           <div class="transport-controls">

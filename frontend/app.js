@@ -9,6 +9,13 @@ const state = {
   busy: false,
   selectedStemId: null,
   viewStartSec: 0,
+  stemMixer: {
+    isPlaying: false,
+    currentTimeSec: 0,
+    tracks: {},
+    audioElements: new Map(),
+    animationFrameId: null,
+  },
   playback: {
     audioContext: null,
     masterGain: null,
@@ -42,6 +49,10 @@ const els = {
   projectTitle: document.querySelector("#project-title"),
   projectMeta: document.querySelector("#project-meta"),
   stemStrip: document.querySelector("#stem-strip"),
+  stemPlayButton: document.querySelector("#stem-play-button"),
+  stemStopButton: document.querySelector("#stem-stop-button"),
+  stemTime: document.querySelector("#stem-time"),
+  stemPlayhead: document.querySelector("#stem-playhead"),
   notePlayButton: document.querySelector("#note-play-button"),
   noteStopButton: document.querySelector("#note-stop-button"),
   playbackTime: document.querySelector("#playback-time"),
@@ -151,6 +162,8 @@ els.scoreSettingsForm.addEventListener("submit", async (event) => {
 els.exportMidi.addEventListener("click", () => download("midi"));
 els.exportMusicxml.addEventListener("click", () => download("musicxml"));
 els.exportPdf.addEventListener("click", () => download("pdf"));
+els.stemPlayButton.addEventListener("click", () => toggleStemPlayback());
+els.stemStopButton.addEventListener("click", () => stopStemPlayback());
 els.notePlayButton.addEventListener("click", () => {
   if (state.playback.isPlaying) {
     pausePlayback();
@@ -207,6 +220,7 @@ function render() {
   renderProjectHeader();
   renderScoreSettingsForm();
   renderStems();
+  renderStemMixerTransport();
   renderPlayback();
   renderScore();
   renderPianoRoll();
@@ -326,19 +340,32 @@ function renderStems() {
   const project = state.project;
   const stems = project?.stems || [];
   els.stemStrip.replaceChildren();
+  syncStemAudioElements();
 
   if (stems.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "stem-item";
+    empty.className = "stem-empty";
     empty.innerHTML = "<strong>No stems yet</strong><span>Run separation to create the first playable stem.</span>";
     els.stemStrip.append(empty);
     return;
   }
 
   for (const stem of stems) {
+    const trackState = state.stemMixer.tracks[stem.id];
     const item = document.createElement("article");
-    item.className = stem.id === state.selectedStemId ? "stem-item is-selected" : "stem-item";
+    item.className = [
+      "track-row",
+      stem.id === state.selectedStemId ? "is-selected" : "",
+      trackState.enabled ? "" : "is-muted",
+    ].filter(Boolean).join(" ");
     item.setAttribute("aria-selected", stem.id === state.selectedStemId ? "true" : "false");
+
+    const meter = document.createElement("div");
+    meter.className = "track-meter";
+    meter.style.transform = `scaleX(${trackState.enabled ? trackState.volume : 0})`;
+
+    const identity = document.createElement("div");
+    identity.className = "track-identity";
 
     const label = document.createElement("strong");
     label.textContent = stem.label;
@@ -346,19 +373,293 @@ function renderStems() {
     const engine = document.createElement("span");
     engine.textContent = stem.engine;
 
-    const audio = document.createElement("audio");
-    audio.controls = true;
-    audio.src = `/api/projects/${project.id}/files/${encodeURIComponent(stem.audio.path)}`;
+    identity.append(label, engine);
+
+    const enabledLabel = document.createElement("label");
+    enabledLabel.className = "track-toggle";
+
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.checked = trackState.enabled;
+    enabled.setAttribute("aria-label", `Play ${stem.label}`);
+    enabled.addEventListener("change", () => setStemEnabled(stem.id, enabled.checked));
+
+    const enabledText = document.createElement("span");
+    enabledText.textContent = "On";
+    enabledLabel.append(enabled, enabledText);
+
+    const volumeWrap = document.createElement("label");
+    volumeWrap.className = "track-volume";
+
+    const volumeLabel = document.createElement("span");
+    volumeLabel.textContent = "Vol";
+
+    const volume = document.createElement("input");
+    volume.type = "range";
+    volume.min = "0";
+    volume.max = "1";
+    volume.step = "0.01";
+    volume.value = String(trackState.volume);
+    volume.disabled = !trackState.enabled;
+    volume.setAttribute("aria-label", `${stem.label} volume`);
+
+    const volumeValue = document.createElement("output");
+    volumeValue.textContent = `${Math.round(trackState.volume * 100)}%`;
+    volume.addEventListener("input", () => {
+      const nextVolume = setStemVolume(stem.id, Number(volume.value));
+      volumeValue.textContent = `${Math.round(nextVolume * 100)}%`;
+      meter.style.transform = `scaleX(${trackState.enabled ? nextVolume : 0})`;
+    });
+    volumeWrap.append(volumeLabel, volume, volumeValue);
 
     const selectButton = document.createElement("button");
     selectButton.type = "button";
-    selectButton.className = "stem-select";
-    selectButton.textContent = stem.id === state.selectedStemId ? "Selected" : "Select";
+    selectButton.className = "track-score-select";
+    selectButton.textContent = stem.id === state.selectedStemId ? "Selected" : "Use for score";
     selectButton.addEventListener("click", () => selectStem(stem.id));
 
-    item.append(label, engine, audio, selectButton);
+    const audio = state.stemMixer.audioElements.get(stem.id);
+    if (audio) item.append(audio);
+
+    item.append(meter, identity, enabledLabel, volumeWrap, selectButton);
     els.stemStrip.append(item);
   }
+}
+
+function renderStemMixerTransport() {
+  const stems = state.project?.stems || [];
+  const hasStems = stems.length > 0;
+  const duration = getStemMixerDuration();
+  const currentSec = currentStemPositionSec();
+  const percent = duration > 0 ? clamp(currentSec / duration, 0, 1) * 100 : 0;
+
+  els.stemPlayButton.textContent = state.stemMixer.isPlaying ? "Pause" : "Play";
+  els.stemPlayButton.disabled = state.busy || !hasStems;
+  els.stemStopButton.disabled = state.busy || !hasStems;
+  els.stemTime.textContent = `${formatClock(currentSec)} / ${duration > 0 ? formatClock(duration) : "--:--"}`;
+  els.stemPlayhead.style.width = `${percent}%`;
+}
+
+function syncStemAudioElements() {
+  const project = state.project;
+  const stems = project?.stems || [];
+  const stemIds = new Set(stems.map((stem) => stem.id));
+
+  for (const [stemId, audio] of state.stemMixer.audioElements) {
+    if (!stemIds.has(stemId)) {
+      audio.pause();
+      state.stemMixer.audioElements.delete(stemId);
+      delete state.stemMixer.tracks[stemId];
+    }
+  }
+
+  for (const stem of stems) {
+    if (!state.stemMixer.tracks[stem.id]) {
+      state.stemMixer.tracks[stem.id] = { enabled: true, volume: 1 };
+    }
+
+    let audio = state.stemMixer.audioElements.get(stem.id);
+    if (!audio) {
+      audio = document.createElement("audio");
+      audio.className = "stem-audio";
+      audio.preload = "metadata";
+      audio.addEventListener("loadedmetadata", () => renderStemMixerTransport());
+      audio.addEventListener("timeupdate", () => {
+        if (state.stemMixer.isPlaying) renderStemMixerTransport();
+      });
+      audio.addEventListener("ended", () => handleStemAudioEnded());
+      state.stemMixer.audioElements.set(stem.id, audio);
+    }
+
+    const src = `/api/projects/${project.id}/files/${encodeURIComponent(stem.audio.path)}`;
+    if (!audio.src.endsWith(src)) audio.src = src;
+    updateStemAudioVolume(stem.id);
+  }
+}
+
+function toggleStemPlayback() {
+  if (state.stemMixer.isPlaying) {
+    pauseStemPlayback();
+  } else {
+    startStemPlayback();
+  }
+}
+
+async function startStemPlayback() {
+  const stems = state.project?.stems || [];
+  if (stems.length === 0) return;
+  syncStemAudioElements();
+
+  const activeAudios = activeStemAudioElements();
+  if (activeAudios.length === 0) {
+    setStatus("Enable at least one stem to play.");
+    return;
+  }
+
+  const duration = getStemMixerDuration();
+  const startSec = duration > 0
+    ? clamp(state.stemMixer.currentTimeSec, 0, Math.max(0, duration - 0.02))
+    : state.stemMixer.currentTimeSec;
+
+  try {
+    for (const audio of state.stemMixer.audioElements.values()) {
+      audio.pause();
+      setAudioCurrentTime(audio, startSec);
+    }
+
+    const results = await Promise.allSettled(activeAudios.map((audio) => audio.play()));
+    const hasPlayback = results.some((result) => result.status === "fulfilled");
+    if (!hasPlayback) {
+      const reason = results.find((result) => result.status === "rejected")?.reason;
+      throw new Error(reason?.message || "Browser blocked audio playback.");
+    }
+
+    state.stemMixer.isPlaying = true;
+    state.stemMixer.currentTimeSec = startSec;
+    tickStemPlayback();
+    setStatus("Playing enabled stems.");
+    renderStemMixerTransport();
+    renderStems();
+  } catch (error) {
+    state.stemMixer.isPlaying = false;
+    cancelStemPlaybackFrame();
+    pauseAllStemAudio();
+    setStatus(`Could not start stem playback: ${error.message}`);
+    renderStemMixerTransport();
+  }
+}
+
+function pauseStemPlayback() {
+  if (!state.stemMixer.isPlaying) return;
+  state.stemMixer.currentTimeSec = currentStemPositionSec();
+  state.stemMixer.isPlaying = false;
+  cancelStemPlaybackFrame();
+  pauseAllStemAudio();
+  setStatus("Stem playback paused.");
+  renderStemMixerTransport();
+  renderStems();
+}
+
+function stopStemPlayback() {
+  state.stemMixer.isPlaying = false;
+  state.stemMixer.currentTimeSec = 0;
+  cancelStemPlaybackFrame();
+  for (const audio of state.stemMixer.audioElements.values()) {
+    audio.pause();
+    setAudioCurrentTime(audio, 0);
+  }
+  setStatus("Stem playback stopped.");
+  renderStemMixerTransport();
+  renderStems();
+}
+
+function setStemEnabled(stemId, enabled) {
+  const track = state.stemMixer.tracks[stemId];
+  if (!track) return;
+  track.enabled = enabled;
+  const audio = state.stemMixer.audioElements.get(stemId);
+  if (audio) {
+    updateStemAudioVolume(stemId);
+    if (state.stemMixer.isPlaying) {
+      if (enabled) {
+        setAudioCurrentTime(audio, currentStemPositionSec());
+        audio.play().catch((error) => setStatus(`Could not add stem to playback: ${error.message}`));
+      } else {
+        audio.pause();
+      }
+    }
+  }
+  if (state.stemMixer.isPlaying && activeStemAudioElements().length === 0) pauseStemPlayback();
+  renderStems();
+  renderStemMixerTransport();
+}
+
+function setStemVolume(stemId, volume) {
+  const track = state.stemMixer.tracks[stemId];
+  if (!track) return 0;
+  track.volume = clamp(volume, 0, 1);
+  updateStemAudioVolume(stemId);
+  return track.volume;
+}
+
+function updateStemAudioVolume(stemId) {
+  const audio = state.stemMixer.audioElements.get(stemId);
+  const track = state.stemMixer.tracks[stemId];
+  if (!audio || !track) return;
+  audio.volume = track.enabled ? track.volume : 0;
+}
+
+function tickStemPlayback() {
+  if (!state.stemMixer.isPlaying) return;
+  state.stemMixer.currentTimeSec = currentStemPositionSec();
+
+  const duration = getStemMixerDuration();
+  if (duration > 0 && state.stemMixer.currentTimeSec >= duration - 0.05) {
+    stopStemPlayback();
+    return;
+  }
+
+  renderStemMixerTransport();
+  state.stemMixer.animationFrameId = window.requestAnimationFrame(tickStemPlayback);
+}
+
+function cancelStemPlaybackFrame() {
+  if (state.stemMixer.animationFrameId) {
+    window.cancelAnimationFrame(state.stemMixer.animationFrameId);
+    state.stemMixer.animationFrameId = null;
+  }
+}
+
+function handleStemAudioEnded() {
+  if (!state.stemMixer.isPlaying) return;
+  const stillPlaying = activeStemAudioElements().some((audio) => !audio.paused && !audio.ended);
+  if (!stillPlaying) stopStemPlayback();
+}
+
+function pauseAllStemAudio() {
+  for (const audio of state.stemMixer.audioElements.values()) {
+    audio.pause();
+  }
+}
+
+function activeStemAudioElements() {
+  const stems = state.project?.stems || [];
+  return stems
+    .filter((stem) => state.stemMixer.tracks[stem.id]?.enabled)
+    .map((stem) => state.stemMixer.audioElements.get(stem.id))
+    .filter(Boolean);
+}
+
+function currentStemPositionSec() {
+  if (!state.stemMixer.isPlaying) return state.stemMixer.currentTimeSec || 0;
+  const clock = activeStemAudioElements().find((audio) => !audio.paused) || activeStemAudioElements()[0];
+  return clock ? clock.currentTime : state.stemMixer.currentTimeSec || 0;
+}
+
+function getStemMixerDuration() {
+  const durations = [...state.stemMixer.audioElements.values()]
+    .map((audio) => audio.duration)
+    .filter((duration) => Number.isFinite(duration) && duration > 0);
+  return durations.length > 0 ? Math.max(...durations) : 0;
+}
+
+function setAudioCurrentTime(audio, seconds) {
+  try {
+    audio.currentTime = seconds;
+  } catch (_error) {
+    // Metadata may not be loaded yet; playback will still start from the browser's current position.
+  }
+}
+
+function resetStemMixer() {
+  state.stemMixer.isPlaying = false;
+  state.stemMixer.currentTimeSec = 0;
+  cancelStemPlaybackFrame();
+  for (const audio of state.stemMixer.audioElements.values()) {
+    audio.pause();
+  }
+  state.stemMixer.audioElements.clear();
+  state.stemMixer.tracks = {};
 }
 
 function renderScore() {
@@ -519,6 +820,8 @@ function renderButtons() {
   els.separateButton.disabled = disabled || !hasProject;
   els.transcribeButton.disabled = disabled || !hasProject || !hasStems || !state.selectedStemId;
   els.scoreSettingsFieldset.disabled = disabled || !hasProject;
+  els.stemPlayButton.disabled = disabled || !hasStems;
+  els.stemStopButton.disabled = disabled || !hasStems;
   els.notePlayButton.disabled = disabled || !hasNotes;
   els.noteStopButton.disabled = disabled || !hasNotes;
   els.viewPrevButton.disabled = disabled || !hasNotes || state.viewStartSec <= 0;
@@ -713,6 +1016,7 @@ function advanceViewWindow(direction) {
 
 function setProject(project, preferredStemId = null) {
   const projectChanged = state.project?.id !== project?.id;
+  const stemsChanged = projectChanged || !sameStemIds(state.project?.stems || [], project?.stems || []);
   const previousStemId = !projectChanged ? state.selectedStemId : null;
   if (projectChanged) {
     state.viewStartSec = 0;
@@ -720,6 +1024,9 @@ function setProject(project, preferredStemId = null) {
     state.playback.isPlaying = false;
     clearScheduledPlayback();
     cancelPlaybackFrame();
+  }
+  if (stemsChanged) {
+    resetStemMixer();
   }
   state.project = project;
 
@@ -736,6 +1043,11 @@ function setProject(project, preferredStemId = null) {
 function rememberProject(project) {
   if (!project) return;
   state.projects = [project, ...state.projects.filter((candidate) => candidate.id !== project.id)];
+}
+
+function sameStemIds(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((stem, index) => stem.id === right[index]?.id && stem.audio.path === right[index]?.audio.path);
 }
 
 function selectStem(stemId) {
@@ -796,6 +1108,13 @@ function midiToFrequency(pitch) {
 
 function formatSeconds(seconds) {
   return `${Number(seconds || 0).toFixed(2)}s`;
+}
+
+function formatClock(seconds) {
+  const safeSeconds = Math.max(0, Number(seconds || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const wholeSeconds = Math.floor(safeSeconds % 60);
+  return `${minutes}:${String(wholeSeconds).padStart(2, "0")}`;
 }
 
 function clamp(value, min, max) {
